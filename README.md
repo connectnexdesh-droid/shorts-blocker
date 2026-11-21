@@ -1,42 +1,26 @@
 # Shorts Blocker (Android)
 
-A native Android accessibility-based prototype that attempts to hide explicitly labelled YouTube Shorts, Instagram Reels, and Facebook Reels UI elements in the official apps. It does not modify or repackage those apps.
+A project for building app-specific native patches that remove Shorts/Reels UI from modified builds of YouTube, Instagram, and Facebook. The selected C architecture requires modified app builds; it does not patch untouched official apps.
 
 ## Architecture
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the planned rootless hybrid design using AccessibilityService screenshots, on-device OCR, app-specific visual detection, confidence gating, and precise overlays. This is a design document; the current v0.4.0 code does not yet implement the screenshot/OCR pipeline.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the selected Custom Native Patch Architecture (C), including APK inspection, version fingerprints, app-specific patch packs, signing, installation choices, and validation.
 
-## Current scope (v0.4.0)
+## Current repository status
 
-- Kotlin native Android app (min SDK 26).
-- User-controlled master switch and per-app switches.
-- Accessibility service scans visible UI nodes in YouTube, Instagram, and Facebook.
-- English and selected Bangla/Hindi Shorts/Reels labels are recognized.
-- When an explicitly labelled Shorts/Reels bottom tab is reported as selected, the app covers the feed area while leaving the bottom navigation area available.
-- A touch-blocking accessibility overlay covers matching labels or candidate feed containers.
-- Unit tests cover supported package names and label matching.
+The repository currently contains the earlier v0.4.0 AccessibilityService/overlay prototype. The native patch manager and YouTube/Instagram/Facebook patch bundles are not implemented yet. The v0.4.0 APK is not a native patched-app build.
 
 ## Important limitations
 
-This is a best-effort prototype, not a guaranteed feed-cleaning solution. The social apps may not expose their feed type or selected tab consistently through Android accessibility metadata. UI changes, language, app versions, A/B tests, themes, and custom layouts can cause missed detections or false positives. Overlay masking may leave blank areas; it does not remove elements from the host app's layout or source code. The selected-tab feed mask is heuristic and needs real-device testing.
-
-The service only runs when the user explicitly enables it in Android Accessibility settings. Matching is performed on-device. This prototype does not store or transmit screen content and does not request internet access.
+Native patching requires exact app-version compatibility. A modified APK signed with a different key normally cannot update the official installation in place. A separate clone may break sign-in, notifications, deep links, or integrity checks. The patcher must fail closed on unsupported versions and must never package or redistribute proprietary original APKs.
 
 ## Build
 
-Open this repository in Android Studio, allow Gradle sync, then run the app configuration on an Android device. Or run:
-
-```bash
-gradle :app:testDebugUnitTest :app:assembleDebug
-```
+The current Android app can still be built with Android Studio, but it is the old overlay prototype. The new native patch pipeline is a design plan and is not yet buildable as a feature.
 
 ## Setup on device
 
-1. Install the APK and open the app.
-2. Turn on the apps you want to filter.
-3. Tap **Open Accessibility Settings** and review the disclosure.
-4. Enable **Shorts Blocker** in Android Accessibility settings.
-5. Return to the app. The blocker runs only while the master switch is enabled.
+Do not install the v0.4.0 prototype expecting native patching. Native patch builds will be provided only after app-version compatibility and on-device regression tests pass.
 
 ## Privacy and policy
 
