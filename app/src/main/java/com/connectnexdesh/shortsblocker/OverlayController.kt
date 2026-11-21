@@ -82,5 +82,5 @@ internal class OverlayController(context: Context) {
     }
 
     private fun key(rect: Rect): String =
-        "\${rect.left}:\${rect.top}:\${rect.right}:\${rect.bottom}"
+        listOf(rect.left, rect.top, rect.right, rect.bottom).joinToString(":")
 }
