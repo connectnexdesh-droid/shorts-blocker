@@ -1,167 +1,159 @@
-# Shorts Blocker — Advanced Rootless Architecture
+# Shorts Blocker — Custom Native Patch Architecture (C)
 
-## Product constraints
+## Product direction
 
-- No root, Magisk, Xposed, LSPosed, VPN, or modified social-app APKs.
-- Keep the official YouTube, Instagram, and Facebook apps installed and unchanged.
-- Preserve ordinary posts, photos, Stories, and standard video playback wherever they are not identified as Shorts/Reels.
-- All screen analysis stays on-device. Raw screenshots are transient and are not uploaded or retained by default.
+The selected direction is **C: modified native applications with app-specific patches**.
 
-## Important platform limitation
+Constraints and consequences:
+- No root, Magisk, LSPosed, Xposed, or runtime overlay.
+- Shorts Blocker is a patch manager and custom patch-pack project, not a tool that edits the live private UI of an untouched app.
+- The output apps are modified builds. They are not the unchanged official apps.
+- Do not distribute copyrighted original APKs. The user supplies APKs obtained from their own device or another lawful source.
+- Never collect or transmit app credentials, session cookies, private messages, or personal app data.
 
-A normal Android app cannot directly delete or re-layout private UI views inside another app. Without root, app modification, or vendor support, Shorts Blocker cannot truly remove a host app's internal view. The supported rootless approach is to identify the exact unwanted region, draw an accessibility overlay over it, and consume touches in that region. The host app may therefore retain blank space beneath a mask. Do not describe masking as native UI removal.
+## Critical Android signing constraint
 
-## Recommended architecture
+A modified APK cannot normally update an installed official app if it is signed with a different certificate. Android's package manager requires the signing certificate to match for an in-place update. Therefore the supported installation choices are:
+
+1. **Separate patched clone:** change the package ID only when the app and its dependencies support it. This may break OAuth, Google/Facebook sign-in, notifications, deep links, integrity checks, or push services.
+2. **Replace the official installation:** uninstall the official app, then install the modified build. This can remove local app data and requires a backup/account sync first.
+
+The patch manager must explain this before patching and must never silently uninstall the official app.
+
+## Architecture
 
 ```text
-Official social app (unchanged)
-        |
-        v
-AccessibilityService event monitor
-        |
-        +--> Accessibility tree snapshot
-        |      - package name
-        |      - view ID / text / content description
-        |      - clickable, selected, checked state
-        |      - exact screen bounds
-        |
-        +--> Screenshot provider (Android API 30+)
-        |      - AccessibilityService.takeScreenshot()
-        |      - API 34+: takeScreenshotOfWindow() where useful
-        |      - event-driven, debounced, rate-limited
-        |
-        v
-On-device perception pipeline
-        |
-        +--> OCR (ML Kit bundled model where offline-first is required)
-        +--> app-specific icon / badge template matching
-        +--> screen-layout classifier (later phase; requires test samples)
-        |
-        v
-App-specific decision engine
-        - YouTube Shorts shelf / Shorts tab / Shorts player
-        - Instagram Reels tab / Reels cards / Reels player
-        - Facebook Reels entry / Reels cards / Reels player
-        |
-        v
-Confidence + safety gate
-        |
-        +--> high confidence: exact target rectangle
-        +--> uncertain: do not mask; record local diagnostic
-        |
-        v
-Precision overlay controller
-        - small exact rectangles only
-        - touch interception only on blocked controls/cards
-        - full-screen block only on a positively identified Shorts/Reels player
-        - never mask a large parent container based only on a text match
+Shorts Blocker Manager (Android UI)
+       |
+       +--> APK / split-APK intake (user selected files)
+       |
+       +--> Package inspector
+       |      - package ID
+       |      - version name / version code
+       |      - min/target SDK
+       |      - split APK set
+       |      - signing certificate fingerprint
+       |
+       +--> Compatibility registry
+       |      - supported app versions
+       |      - required base/split set
+       |      - patch fingerprints
+       |
+       +--> Patch orchestration layer
+       |      - ReVanced Patcher-compatible patch runtime / CLI adapter
+       |      - Shorts Blocker custom patch bundle
+       |      - deterministic patch selection
+       |
+       +--> App-specific patch packs
+       |      - YouTube Shorts Pack
+       |      - Instagram Reels Pack
+       |      - Facebook Reels Pack
+       |
+       +--> Rebuild, align, sign, verify
+       |
+       +--> Installation hand-off (explicit user confirmation)
 ```
 
-## Android implementation choices
+## Why build on a proven patcher framework?
 
-### 1. Accessibility event monitor
+Do not write a DEX parser, smali assembler, resource compiler, APK signer, and ZIP rewriter from scratch. Use a maintained patching framework as the binary transformation layer and build our own patch definitions, compatibility checks, UI, tests, and release workflow around it.
 
-Keep one AccessibilityService scoped to the three supported package names. Trigger scans on window-state, window-content, scroll, and window changes. Debounce repeated events. Read the active window and its package before doing any work. Never clear or apply masks based only on a stale event package.
+ReVanced CLI is a command-line application built on ReVanced Patcher and documents patch-bundle selection, package/version checks, patching, and ADB installation. The first implementation should integrate or invoke this toolchain in a reproducible build environment rather than pretend an ordinary Android app can safely patch every installed app in-place.
 
-### 2. Screenshot provider
+Official CLI documentation:
+- https://github.com/ReVanced/revanced-cli
+- https://github.com/ReVanced/revanced-cli/blob/main/docs/1_usage.md
 
-For Android 11 / API 30 and later, use `AccessibilityService.takeScreenshot()`. Declare `android:canTakeScreenshot="true"` in the accessibility-service XML metadata. On Android 14 / API 34 and later, use `takeScreenshotOfWindow()` when a window-specific capture is useful.
+## App-specific patch plan
 
-Prefer this AccessibilityService screenshot API over MediaProjection for this product: it avoids building a separate screen-capture foreground-service flow and its per-session MediaProjection consent lifecycle. Screenshots must still be handled as sensitive data.
+### Phase 1 — YouTube (first proof of concept)
 
-For API 26–29, fall back to accessibility-tree-only detection. Show a clear capability status in the app; do not silently claim visual detection is active.
+Target package: `com.google.android.youtube`.
 
-Capture only after relevant UI events, not at video frame rate. Debounce, enforce a minimum interval, and discard stale results when the active package/window changes.
+Patch objectives:
+1. Hide the Shorts navigation control.
+2. Remove Shorts shelves/cards from Home and other selected feeds.
+3. Disable entry into the Shorts player through Shorts-specific routes.
+4. Preserve standard video watch pages, subscriptions, search, channels, playlists, and ordinary video cards.
 
-### 3. OCR and visual matching
+Existing community patch ecosystems already document a YouTube Shorts navigation-button patch and Shorts-related component patches. We should first verify the exact patch names and compatibility for the user's installed YouTube version. Reuse compatible patch logic where its license permits; write a Shorts Blocker-specific patch only for gaps. Do not claim that a patch hides the Home shelf until tested on the target version.
 
-- Use on-device ML Kit Text Recognition for visible labels such as “Shorts”, “Reels”, and “Watch Reels”.
-- Prefer a bundled OCR model when first-run offline availability is important; a Play-services model can reduce APK size but may need to download before use.
-- ML Kit's documented Text Recognition v2 script support does not include Bengali. If Bengali-language UI support is required, add a separately evaluated Bengali OCR engine/model; do not claim Bengali OCR based on Latin/Devanagari support.
-- Use app-version-aware icon templates for unlabeled navigation icons.
-- Add a trained on-device classifier only after collecting a consented, local test set across app versions, screen sizes, themes, and languages. A vertical aspect ratio alone is never enough to classify a video as a Reel/Short.
+### Phase 2 — Instagram
 
-### 4. App-specific rules
+Target package: `com.instagram.android`.
 
-#### YouTube
+Patch objectives:
+1. Hide the Reels navigation destination.
+2. Remove Reels-only surfaces from Home/Explore where they can be reliably distinguished.
+3. Block dedicated Reels player entry points.
+4. Preserve photo posts, Stories, DMs, profile pages, and ordinary feed video.
 
-- Hide the Shorts navigation control only when its accessibility label/view ID or visual template is confidently identified.
-- Hide a Home Shorts shelf only when a Shorts heading/anchor and its associated shelf/card layout are both identified.
-- Keep ordinary video cards and the normal video player.
-- If the Shorts player screen is confidently identified, show a clear blocking mask/panel and consume taps in the player region; preserve a safe Back route.
+No Instagram patch is assumed to exist. First perform static analysis of a user-supplied target APK, map the relevant UI/navigation components, create version-specific fingerprints, and write instrumentation tests. If the app's obfuscation or integrity checks make reliable patching impractical, mark that feature unsupported rather than ship a broken APK.
 
-#### Instagram
+### Phase 3 — Facebook
 
-- Identify the Reels navigation icon using the accessibility node first, then an app-version-specific visual template.
-- Mask only cards confidently labelled or classified as Reels.
-- Do not classify every vertical video as a Reel. Preserve ordinary feed videos unless independent Reels evidence exists.
-- If the dedicated Reels player is positively identified, block that screen with an explicit local overlay and a safe exit.
+Target package: `com.facebook.katana`.
 
-#### Facebook
+Patch objectives:
+1. Hide Reels-specific navigation entry points.
+2. Remove Reels-only cards/shelves.
+3. Block the dedicated Reels viewer.
+4. Preserve ordinary video posts, photos, groups, pages, Marketplace, and generic Watch/video surfaces unless proven to be Reels.
 
-- Distinguish Reels from generic Watch/Video destinations. Never hide a generic Videos or Watch control merely because it opens video content.
-- Use Reels-specific labels, view IDs, badges, and screen-layout evidence.
-- Preserve ordinary video posts in Home Feed unless Reels evidence is strong.
-- If a dedicated Reels player is positively identified, block it and provide a safe Back route.
+Facebook has multiple surfaces and frequent server-driven UI changes. Each target must be distinguished from generic video UI. Do not hide a generic Watch or Videos entry as a shortcut.
 
-### 5. Confidence and overlay safety
-
-Initial thresholds are engineering starting points and must be calibrated with device testing, not treated as measured accuracy:
-
-- 0.90 or higher: allow a precise tab/icon mask when the target geometry is valid.
-- 0.85 or higher: allow a card/shelf mask only when at least two independent signals agree (for example, a Reels label plus a matching card layout).
-- Full-screen player blocking: require a dedicated screen signature, not one text token.
-- Below threshold: do not mask. Record a compact local diagnostic instead.
-
-Overlay rules:
-
-- Never expand from a matched label to an arbitrary large ancestor.
-- Validate bounds against display size and minimum/maximum region limits.
-- Reject overlapping or implausibly large rectangles.
-- Provide a debug mode that draws outlines and labels instead of opaque masks.
-- Provide an emergency “disable blocker” action and always let the user disable the Accessibility Service in Android Settings.
-
-## Suggested project modules
+## Patch-engine modules
 
 | Module | Responsibility |
 |---|---|
-| `service/BlockerAccessibilityService` | Events, active-window lifecycle, package routing |
-| `capture/AccessibilityScreenshotProvider` | API 30+ screenshot capture and throttling |
-| `snapshot/AccessibilityTreeReader` | Node text, IDs, state, bounds |
-| `vision/OcrEngine` | On-device OCR |
-| `vision/IconTemplateMatcher` | App-version-specific icon/badge matching |
-| `vision/ScreenClassifier` | Later-stage screen/card classification |
-| `rules/YouTubeRules` | Shorts-specific detection |
-| `rules/InstagramRules` | Reels-specific detection |
-| `rules/FacebookRules` | Reels-specific detection |
-| `decision/ConfidenceGate` | Evidence fusion and false-positive prevention |
-| `overlay/PrecisionOverlayController` | Exact masks and touch interception |
-| `diagnostics/LocalDiagnostics` | Counts, labels, bounds, timing; no raw screenshots by default |
+| `patcher/engine` | Adapter around the selected patch framework |
+| `patcher/apk-inspector` | Package/version/splits/signing metadata |
+| `patcher/compatibility` | Exact supported fingerprints and fail-closed checks |
+| `patches/youtube` | YouTube Shorts patch definitions |
+| `patches/instagram` | Instagram Reels patch definitions |
+| `patches/facebook` | Facebook Reels patch definitions |
+| `patcher/rebuilder` | Rebuild, align, sign, verify |
+| `patcher/install` | Explicit install/replace/clone workflow |
+| `manager-ui` | APK selection, patch options, progress, warnings |
+| `tests/fixtures` | User-provided test fixtures and version-specific regression cases |
 
-## Delivery plan
+## Compatibility and safety rules
 
-1. **Instrumentation first:** show active package, node count, screenshot capability, OCR text, candidate bounds, and decision reason in a local debug panel.
-2. **Screenshot pipeline:** implement API 30+ AccessibilityService screenshots and verify that captures correspond to the active social-app window.
-3. **OCR:** add bundled/on-device OCR, event-driven capture, and app-specific keyword anchors.
-4. **Precision rules:** implement YouTube first; then Instagram; then Facebook. Add exact view-ID and icon-template rules per tested app version.
-5. **Safe overlays:** replace broad parent masking with exact rectangles and conservative confidence gates.
-6. **Device validation:** test Home, ordinary video, Shorts/Reels, search, profile, Stories, dark/light themes, and supported app versions. Require proof that normal video remains visible before enabling a rule by default.
+- Patch only exact package/version fingerprints that have been tested.
+- Fail closed on unknown versions; never guess method signatures or resource IDs.
+- Verify that ordinary video entry points still work before marking a build compatible.
+- Keep a backup/export path for user data and clearly warn before uninstalling an official app.
+- Never ask users to share passwords, session tokens, or account databases.
+- Do not bundle or redistribute original proprietary APK files.
+- Do not bypass paid access, age gates, account protections, or security checks.
+- Store signing keys securely; do not commit private signing keys to GitHub.
 
-## Test matrix
+## Validation matrix
 
-| App | Must block | Must preserve |
+| App | Must remove/block | Must preserve |
 |---|---|---|
-| YouTube | Shorts tab, Home Shorts shelf, Shorts player | Home feed, subscriptions, search, standard video player |
-| Instagram | Reels tab, positively identified Reels cards/player | Photos, Stories, standard feed video |
-| Facebook | Reels entry, positively identified Reels cards/player | Posts, photos, standard video posts, generic Watch/Video content unless identified as Reels |
+| YouTube | Shorts button, Shorts shelf, Shorts player | Standard videos, search, subscriptions, channels |
+| Instagram | Reels tab, Reels surfaces, Reels player | Photos, Stories, DMs, normal feed videos |
+| Facebook | Reels tab/cards/player | Posts, photos, groups, pages, ordinary videos |
 
-## Privacy and Play policy
+Every app/version needs:
+- Static patch verification.
+- Install and launch test.
+- Home-feed regression test.
+- Standard-video playback test.
+- Shorts/Reels entry test.
+- Sign-in and notification smoke test where clone mode is used.
 
-- Process frames locally and discard them after OCR/classification.
-- Do not upload screenshots, OCR text, private messages, credentials, or unrelated screen content.
-- Explain the Accessibility Service purpose prominently and obtain explicit user consent.
-- Google Play treats Accessibility API usage as restricted; this app must not falsely designate itself as an accessibility tool. Review current Play policy before distribution.
+## Delivery sequence
+
+1. Collect exact app package/version/split information from the user's phone.
+2. Build a reproducible patching pipeline for a user-supplied YouTube APK.
+3. Verify the Shorts navigation patch and investigate Home shelf/player patches.
+4. Produce one test build and validate it on the user's device.
+5. Only after YouTube passes, start Instagram reverse engineering.
+6. Start Facebook after Instagram has a stable test harness.
+7. Add an update checker for supported app-version fingerprints and patch releases.
 
 ## Current implementation status
 
-The existing v0.4.0 repository is still a text/accessibility-tree plus heuristic-overlay prototype. The screenshot/OCR/classifier pipeline described above is the recommended next architecture; it is not yet implemented. Do not label an APK as using this architecture until the corresponding modules are committed, built, and tested on a real device.
+The current repository's v0.4.0 Android app is still the earlier AccessibilityService/overlay prototype. This document defines the newly selected C direction; the native patch manager and app-specific patch bundles have **not** yet been implemented. Do not install or advertise the v0.4.0 prototype as a native patched-app solution.
