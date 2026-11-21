@@ -45,14 +45,14 @@ class BlockerAccessibilityService : AccessibilityService() {
 
         val root: AccessibilityNodeInfo = rootInActiveWindow ?: run {
             overlayController.clear()
-            saveDiagnostics("No active accessibility window", 0, emptyList(), emptyList(), 0)
+            // Keep the last supported-app scan so it remains visible after returning here.
             return
         }
 
         val actualPackage = root.packageName?.toString().orEmpty()
         if (!DetectionRules.isSupportedPackage(actualPackage)) {
             overlayController.clear()
-            saveDiagnostics("No supported app active", 0, emptyList(), emptyList(), 0)
+            // Do not overwrite diagnostics when the user returns to this app or Android Settings.
             return
         }
 
@@ -76,7 +76,10 @@ class BlockerAccessibilityService : AccessibilityService() {
             nodes = result.nodesVisited,
             candidates = result.candidateLabels,
             matches = result.matchedLabels,
-            targetCount = result.targets.size
+            targetCount = result.targets.size,
+            targetBounds = result.targets.joinToString("; ") {
+                "${it.left},${it.top}-${it.right},${it.bottom}"
+            }
         )
     }
 
@@ -85,7 +88,8 @@ class BlockerAccessibilityService : AccessibilityService() {
         nodes: Int,
         candidates: List<String>,
         matches: List<String>,
-        targetCount: Int
+        targetCount: Int,
+        targetBounds: String = ""
     ) {
         getSharedPreferences(BlockerPreferences.FILE_NAME, MODE_PRIVATE).edit()
             .putString(BlockerPreferences.LAST_SCAN_APP, app)
@@ -93,6 +97,7 @@ class BlockerAccessibilityService : AccessibilityService() {
             .putString(BlockerPreferences.LAST_SCAN_CANDIDATES, candidates.joinToString(" | "))
             .putString(BlockerPreferences.LAST_SCAN_MATCHES, matches.joinToString(" | "))
             .putInt(BlockerPreferences.LAST_SCAN_TARGETS, targetCount)
+            .putString(BlockerPreferences.LAST_SCAN_BOUNDS, targetBounds)
             .putLong(BlockerPreferences.LAST_SCAN_TIME, System.currentTimeMillis())
             .apply()
     }
