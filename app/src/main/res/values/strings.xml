@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Shorts Blocker</string>
+    <string name="accessibility_service_label">Shorts Blocker</string>
+    <string name="accessibility_service_description">With your permission, detects explicitly labelled Shorts and Reels controls in YouTube, Instagram, and Facebook and covers those areas on your screen. Screen content is processed on-device and is not collected or transmitted.</string>
+</resources>
