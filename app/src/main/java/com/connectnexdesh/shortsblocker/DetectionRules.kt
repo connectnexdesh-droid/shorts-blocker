@@ -65,7 +65,7 @@ internal object DetectionRules {
 
     private fun isBlockedLabel(packageName: String, raw: String): Boolean {
         val label = raw.lowercase(Locale.ROOT)
-            .replace(Regex("\\\\s+"), " ")
+            .replace(Regex("\\s+"), " ")
             .trim()
         if (label.isBlank()) return false
 
@@ -95,17 +95,19 @@ internal object DetectionRules {
         screenHeight: Int,
         density: Float
     ): Rect {
-        val original = Rect().also(node::getBoundsInScreen)
+        val original = Rect()
+        node.getBoundsInScreen(original)
         if (original.isEmpty) return Rect()
 
-        val minRegionHeight = (90 * density).toInt()
+        val minRegionHeight = (140 * density).toInt()
         val maxRegionHeight = (screenHeight * 0.72f).toInt()
         var parent = node.parent
         var candidate: Rect? = null
         var level = 0
 
         while (parent != null && level < 5) {
-            val bounds = Rect().also(parent::getBoundsInScreen)
+            val bounds = Rect()
+            parent.getBoundsInScreen(bounds)
             val largeEnough = bounds.width() >= screenWidth * 0.72f &&
                 bounds.height() >= minRegionHeight &&
                 bounds.height() <= maxRegionHeight &&
@@ -133,5 +135,5 @@ internal object DetectionRules {
     }
 
     private fun key(rect: Rect): String =
-        "\${rect.left}:\${rect.top}:\${rect.right}:\${rect.bottom}"
+        listOf(rect.left, rect.top, rect.right, rect.bottom).joinToString(":")
 }
