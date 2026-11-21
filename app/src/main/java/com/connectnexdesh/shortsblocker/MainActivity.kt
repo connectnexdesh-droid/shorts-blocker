@@ -185,12 +185,13 @@ class MainActivity : Activity() {
         val matches = prefs.getString(BlockerPreferences.LAST_SCAN_MATCHES, "").orEmpty()
         val candidates = prefs.getString(BlockerPreferences.LAST_SCAN_CANDIDATES, "").orEmpty()
         val targets = prefs.getInt(BlockerPreferences.LAST_SCAN_TARGETS, 0)
+        val bounds = prefs.getString(BlockerPreferences.LAST_SCAN_BOUNDS, "").orEmpty()
         val scanTime = prefs.getLong(BlockerPreferences.LAST_SCAN_TIME, 0L)
         val timeLabel = if (scanTime == 0L) "Never" else
             java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
                 .format(java.util.Date(scanTime))
         diagnosticsStatus.text =
-            "Debug diagnostics\nLast scan: $app at $timeLabel\nNodes: $nodes | Matches: $matches | Masks: $targets\nKeyword candidates: $candidates"
+            "Debug diagnostics\nLast supported-app scan: $app at $timeLabel\nNodes: $nodes | Matches: $matches | Masks: $targets\nKeyword candidates: $candidates\nMask bounds: $bounds"
     }
 
     private fun isAccessibilityServiceEnabled(): Boolean {
@@ -291,5 +292,6 @@ internal object BlockerPreferences {
     const val LAST_SCAN_CANDIDATES = "last_scan_candidates"
     const val LAST_SCAN_MATCHES = "last_scan_matches"
     const val LAST_SCAN_TARGETS = "last_scan_targets"
+    const val LAST_SCAN_BOUNDS = "last_scan_bounds"
     const val LAST_SCAN_TIME = "last_scan_time"
 }
