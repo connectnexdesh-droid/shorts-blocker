@@ -18,9 +18,9 @@ class BlockerAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        val packageName = event?.packageName?.toString() ?: return
+        val packageName = event?.packageName?.toString()
 
-        if (!DetectionRules.isSupportedPackage(packageName)) {
+        if (packageName == null || !DetectionRules.isSupportedPackage(packageName)) {
             if (::overlayController.isInitialized) overlayController.clear()
             return
         }
