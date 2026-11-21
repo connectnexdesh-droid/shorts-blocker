@@ -18,54 +18,83 @@ class BlockerAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        val packageName = event?.packageName?.toString()
+        // Do not clear masks just because Android reports a null/System UI event.
+        // Inspect the actual active window instead; the event package can be misleading.
+        scheduleScan()
+    }
 
-        if (packageName == null || !DetectionRules.isSupportedPackage(packageName)) {
-            if (::overlayController.isInitialized) overlayController.clear()
-            return
+    private fun scheduleScan() {
+        if (pendingScan != null) return
+        val task = Runnable {
+            pendingScan = null
+            scanActiveWindow()
         }
-
-        scheduleScan(packageName)
-    }
-
-    private fun scheduleScan(expectedPackage: String) {
-        pendingScan?.let(handler::removeCallbacks)
-        val task = Runnable { scan(expectedPackage) }
         pendingScan = task
-        handler.postDelayed(task, 180L)
+        handler.postDelayed(task, 120L)
     }
 
-    private fun scan(expectedPackage: String) {
+    private fun scanActiveWindow() {
         if (!::overlayController.isInitialized) return
 
         val prefs = getSharedPreferences(BlockerPreferences.FILE_NAME, MODE_PRIVATE)
-        if (!prefs.getBoolean(BlockerPreferences.MASTER, true) ||
-            !isPackageEnabled(expectedPackage, prefs)
-        ) {
+        if (!prefs.getBoolean(BlockerPreferences.MASTER, true)) {
             overlayController.clear()
+            saveDiagnostics("Blocker disabled", 0, emptyList(), emptyList(), 0)
             return
         }
 
         val root: AccessibilityNodeInfo = rootInActiveWindow ?: run {
             overlayController.clear()
+            saveDiagnostics("No active accessibility window", 0, emptyList(), emptyList(), 0)
             return
         }
 
-        val actualPackage = root.packageName?.toString()
-        if (actualPackage != expectedPackage) {
+        val actualPackage = root.packageName?.toString().orEmpty()
+        if (!DetectionRules.isSupportedPackage(actualPackage)) {
             overlayController.clear()
+            saveDiagnostics("No supported app active", 0, emptyList(), emptyList(), 0)
+            return
+        }
+
+        if (!isPackageEnabled(actualPackage, prefs)) {
+            overlayController.clear()
+            saveDiagnostics("$actualPackage filter OFF", 0, emptyList(), emptyList(), 0)
             return
         }
 
         val metrics = resources.displayMetrics
-        val targets = DetectionRules.findTargets(
+        val result = DetectionRules.findTargets(
             root = root,
-            packageName = expectedPackage,
+            packageName = actualPackage,
             screenWidth = metrics.widthPixels,
             screenHeight = metrics.heightPixels,
             density = metrics.density
         )
-        overlayController.update(targets)
+        overlayController.update(result.targets)
+        saveDiagnostics(
+            app = actualPackage,
+            nodes = result.nodesVisited,
+            candidates = result.candidateLabels,
+            matches = result.matchedLabels,
+            targetCount = result.targets.size
+        )
+    }
+
+    private fun saveDiagnostics(
+        app: String,
+        nodes: Int,
+        candidates: List<String>,
+        matches: List<String>,
+        targetCount: Int
+    ) {
+        getSharedPreferences(BlockerPreferences.FILE_NAME, MODE_PRIVATE).edit()
+            .putString(BlockerPreferences.LAST_SCAN_APP, app)
+            .putInt(BlockerPreferences.LAST_SCAN_NODES, nodes)
+            .putString(BlockerPreferences.LAST_SCAN_CANDIDATES, candidates.joinToString(" | "))
+            .putString(BlockerPreferences.LAST_SCAN_MATCHES, matches.joinToString(" | "))
+            .putInt(BlockerPreferences.LAST_SCAN_TARGETS, targetCount)
+            .putLong(BlockerPreferences.LAST_SCAN_TIME, System.currentTimeMillis())
+            .apply()
     }
 
     private fun isPackageEnabled(
@@ -85,11 +114,13 @@ class BlockerAccessibilityService : AccessibilityService() {
 
     override fun onInterrupt() {
         pendingScan?.let(handler::removeCallbacks)
+        pendingScan = null
         if (::overlayController.isInitialized) overlayController.clear()
     }
 
     override fun onDestroy() {
         pendingScan?.let(handler::removeCallbacks)
+        pendingScan = null
         if (::overlayController.isInitialized) overlayController.clear()
         super.onDestroy()
     }
