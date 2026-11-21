@@ -37,18 +37,34 @@ internal object DetectionRules {
                 )
 
                 for (label in labels) {
-                    if (isBlockedLabel(packageName, label)) {
-                        val target = chooseMaskBounds(
+                    if (!isBlockedLabel(packageName, label)) continue
+
+                    val selectedBounds = findSelectedTabBounds(
+                        node = node,
+                        screenWidth = screenWidth,
+                        screenHeight = screenHeight,
+                        density = density
+                    )
+
+                    val target = if (selectedBounds != null) {
+                        selectedFeedBounds(
+                            node = node,
+                            selectedBounds = selectedBounds,
+                            screenWidth = screenWidth,
+                            screenHeight = screenHeight,
+                            density = density
+                        )
+                    } else {
+                        chooseMaskBounds(
                             node = node,
                             packageName = packageName,
                             screenWidth = screenWidth,
                             screenHeight = screenHeight,
                             density = density
                         )
-                        if (!target.isEmpty) {
-                            found[key(target)] = target
-                        }
                     }
+
+                    if (!target.isEmpty) found[key(target)] = target
                 }
             }
 
@@ -63,7 +79,7 @@ internal object DetectionRules {
         return found.values.take(10)
     }
 
-    private fun isBlockedLabel(packageName: String, raw: String): Boolean {
+    internal fun isBlockedLabel(packageName: String, raw: String): Boolean {
         val label = raw.lowercase(Locale.ROOT)
             .replace(Regex("\\s+"), " ")
             .trim()
@@ -74,7 +90,10 @@ internal object DetectionRules {
                 label == "youtube shorts" ||
                 label.startsWith("shorts tab") ||
                 label.startsWith("shorts button") ||
-                label.contains("shorts shelf")
+                label.contains("shorts shelf") ||
+                label == "শর্টস" ||
+                label == "ইউটিউব শর্টস" ||
+                label.contains("শর্টস")
 
             INSTAGRAM, FACEBOOK -> label == "reel" ||
                 label == "reels" ||
@@ -82,10 +101,83 @@ internal object DetectionRules {
                 label.startsWith("reels button") ||
                 label.startsWith("watch reels") ||
                 label.contains("reel by ") ||
-                label.contains("reels feed")
+                label.contains("reels feed") ||
+                label == "রিল" ||
+                label == "রিলস" ||
+                label.contains("রিলস") ||
+                label.contains("রিল ভিডিও") ||
+                label == "रील" ||
+                label == "रील्स" ||
+                label.contains("रील्स")
 
             else -> false
         }
+    }
+
+    private fun findSelectedTabBounds(
+        node: AccessibilityNodeInfo,
+        screenWidth: Int,
+        screenHeight: Int,
+        density: Float
+    ): Rect? {
+        var current: AccessibilityNodeInfo? = node
+        var depth = 0
+
+        while (current != null && depth < 4) {
+            val bounds = Rect()
+            current.getBoundsInScreen(bounds)
+            val isSelected = current.isSelected || current.isChecked
+            val looksLikeBottomTab = bounds.top >= screenHeight * 0.62f &&
+                bounds.top <= screenHeight * 0.96f &&
+                bounds.width() <= screenWidth * 0.75f &&
+                bounds.height() <= 120 * density
+
+            if (isSelected && looksLikeBottomTab && !bounds.isEmpty) return bounds
+
+            current = current.parent
+            depth += 1
+        }
+
+        return null
+    }
+
+    private fun selectedFeedBounds(
+        node: AccessibilityNodeInfo,
+        selectedBounds: Rect,
+        screenWidth: Int,
+        screenHeight: Int,
+        density: Float
+    ): Rect {
+        var current = node.parent
+        var level = 0
+        var navigationTop = -1
+
+        while (current != null && level < 6) {
+            val bounds = Rect()
+            current.getBoundsInScreen(bounds)
+            val looksLikeBottomNavigation = bounds.width() >= screenWidth * 0.80f &&
+                bounds.height() in (40 * density).toInt()..(140 * density).toInt() &&
+                bounds.top >= screenHeight * 0.62f &&
+                bounds.bottom >= screenHeight * 0.88f
+
+            if (looksLikeBottomNavigation) {
+                navigationTop = bounds.top
+                break
+            }
+
+            current = current.parent
+            level += 1
+        }
+
+        if (navigationTop < 0) {
+            navigationTop = selectedBounds.top - (68 * density).toInt()
+        }
+
+        val top = (24 * density).toInt().coerceAtMost(screenHeight)
+        val bottom = navigationTop.coerceAtMost(screenHeight)
+        if (bottom - top < (screenHeight * 0.20f)) return Rect()
+
+        return Rect(0, top, screenWidth, bottom)
     }
 
     private fun chooseMaskBounds(
