@@ -25,6 +25,7 @@ class MainActivity : Activity() {
     }
 
     private lateinit var serviceStatus: TextView
+    private lateinit var diagnosticsStatus: TextView
     private lateinit var masterSwitch: Switch
     private val appSwitches = mutableListOf<Switch>()
 
@@ -65,6 +66,12 @@ class MainActivity : Activity() {
             setPadding(dp(15), dp(14), dp(15), dp(14))
         }
         statusCard.addView(serviceStatus)
+        diagnosticsStatus = TextView(this).apply {
+            textSize = 12f
+            setTextColor(Color.rgb(91, 101, 119))
+            setPadding(dp(15), 0, dp(15), dp(14))
+        }
+        statusCard.addView(diagnosticsStatus)
         page.addView(statusCard)
 
         val accessButton = Button(this).apply {
@@ -172,6 +179,18 @@ class MainActivity : Activity() {
         } else {
             "Accessibility service: OFF\nEnable Shorts Blocker in Android Accessibility Settings to start."
         }
+
+        val app = prefs.getString(BlockerPreferences.LAST_SCAN_APP, "Not scanned yet")
+        val nodes = prefs.getInt(BlockerPreferences.LAST_SCAN_NODES, 0)
+        val matches = prefs.getString(BlockerPreferences.LAST_SCAN_MATCHES, "").orEmpty()
+        val candidates = prefs.getString(BlockerPreferences.LAST_SCAN_CANDIDATES, "").orEmpty()
+        val targets = prefs.getInt(BlockerPreferences.LAST_SCAN_TARGETS, 0)
+        val scanTime = prefs.getLong(BlockerPreferences.LAST_SCAN_TIME, 0L)
+        val timeLabel = if (scanTime == 0L) "Never" else
+            java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
+                .format(java.util.Date(scanTime))
+        diagnosticsStatus.text =
+            "Debug diagnostics\\nLast scan: $app at $timeLabel\\nNodes: $nodes | Matches: $matches | Masks: $targets\\nKeyword candidates: $candidates"
     }
 
     private fun isAccessibilityServiceEnabled(): Boolean {
@@ -267,4 +286,10 @@ internal object BlockerPreferences {
     const val YOUTUBE = "youtube_enabled"
     const val INSTAGRAM = "instagram_enabled"
     const val FACEBOOK = "facebook_enabled"
+    const val LAST_SCAN_APP = "last_scan_app"
+    const val LAST_SCAN_NODES = "last_scan_nodes"
+    const val LAST_SCAN_CANDIDATES = "last_scan_candidates"
+    const val LAST_SCAN_MATCHES = "last_scan_matches"
+    const val LAST_SCAN_TARGETS = "last_scan_targets"
+    const val LAST_SCAN_TIME = "last_scan_time"
 }
