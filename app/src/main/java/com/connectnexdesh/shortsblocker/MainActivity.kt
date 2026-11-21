@@ -2,6 +2,7 @@ package com.connectnexdesh.shortsblocker
 
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.ComponentName
 import android.content.Intent
 import android.graphics.Color
@@ -69,9 +70,7 @@ class MainActivity : Activity() {
         val accessButton = Button(this).apply {
             text = "Open Accessibility Settings"
             isAllCaps = false
-            setOnClickListener {
-                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-            }
+            setOnClickListener { showAccessibilityDisclosure() }
         }
         page.addView(accessButton, marginParams(top = 10, bottom = 18))
 
@@ -125,7 +124,7 @@ class MainActivity : Activity() {
         page.addView(controlsCard)
 
         val note = TextView(this).apply {
-            text = "How it works\\nThe service looks for visible accessibility labels such as “Shorts” or “Reels” in the official apps, then covers the matching area. It does not modify those apps. Some feed items may not expose a detectable label, and covered areas can appear blank."
+            text = "How it works\nThe service checks visible accessibility text in the selected apps for explicit “Shorts” or “Reels” labels, then covers matching screen areas. It does not modify those apps. Some feed items may not expose a detectable label, and covered areas can appear blank."
             textSize = 13f
             setTextColor(Color.rgb(91, 101, 119))
             setPadding(dp(2), dp(18), dp(2), dp(10))
@@ -133,7 +132,7 @@ class MainActivity : Activity() {
         page.addView(note)
 
         val privacy = TextView(this).apply {
-            text = "Privacy: detection runs on your device. This prototype does not request internet access or upload screen content."
+            text = "Privacy: matching happens on-device. This prototype does not store or transmit screen content and does not request internet access."
             textSize = 12f
             setTextColor(Color.rgb(105, 115, 130))
         }
@@ -153,12 +152,25 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun showAccessibilityDisclosure() {
+        AlertDialog.Builder(this)
+            .setTitle("Accessibility permission")
+            .setMessage(
+                "Shorts Blocker uses Android Accessibility Service to inspect visible accessibility text in YouTube, Instagram, and Facebook while you use those apps. It looks for explicit Shorts/Reels labels and places a local overlay over matching areas, which also blocks taps there. Matching is performed on this device; this prototype does not record, store, or transmit screen content. Detection may miss items or cover the wrong area when social apps change their interface. You can turn the service off at any time in Android Settings."
+            )
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Continue to Settings") { _, _ ->
+                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            }
+            .show()
+    }
+
     private fun refreshStatus() {
         val enabled = isAccessibilityServiceEnabled()
         serviceStatus.text = if (enabled) {
-            "Accessibility service: ON\\nThe blocker can inspect the supported apps while enabled."
+            "Accessibility service: ON\nThe blocker can inspect the supported apps while enabled."
         } else {
-            "Accessibility service: OFF\\nEnable Shorts Blocker in Android Accessibility Settings to start."
+            "Accessibility service: OFF\nEnable Shorts Blocker in Android Accessibility Settings to start."
         }
     }
 
