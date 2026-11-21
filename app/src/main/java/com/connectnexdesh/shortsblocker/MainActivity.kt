@@ -190,7 +190,7 @@ class MainActivity : Activity() {
             java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
                 .format(java.util.Date(scanTime))
         diagnosticsStatus.text =
-            "Debug diagnostics\\nLast scan: $app at $timeLabel\\nNodes: $nodes | Matches: $matches | Masks: $targets\\nKeyword candidates: $candidates"
+            "Debug diagnostics\nLast scan: $app at $timeLabel\nNodes: $nodes | Matches: $matches | Masks: $targets\nKeyword candidates: $candidates"
     }
 
     private fun isAccessibilityServiceEnabled(): Boolean {
