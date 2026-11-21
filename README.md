@@ -2,7 +2,11 @@
 
 A native Android accessibility-based prototype that attempts to hide explicitly labelled YouTube Shorts, Instagram Reels, and Facebook Reels UI elements in the official apps. It does not modify or repackage those apps.
 
-## Current scope (v0.2.0)
+## Architecture
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the planned rootless hybrid design using AccessibilityService screenshots, on-device OCR, app-specific visual detection, confidence gating, and precise overlays. This is a design document; the current v0.4.0 code does not yet implement the screenshot/OCR pipeline.
+
+## Current scope (v0.4.0)
 
 - Kotlin native Android app (min SDK 26).
 - User-controlled master switch and per-app switches.
