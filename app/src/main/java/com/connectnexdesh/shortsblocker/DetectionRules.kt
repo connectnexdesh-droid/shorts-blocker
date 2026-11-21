@@ -1,8 +1,16 @@
 package com.connectnexdesh.shortsblocker
 
 import android.graphics.Rect
+import android.os.Build
 import android.view.accessibility.AccessibilityNodeInfo
 import java.util.Locale
+
+internal data class DetectionResult(
+    val targets: List<Rect>,
+    val nodesVisited: Int,
+    val candidateLabels: List<String>,
+    val matchedLabels: List<String>
+)
 
 internal object DetectionRules {
 
@@ -19,41 +27,56 @@ internal object DetectionRules {
         screenWidth: Int,
         screenHeight: Int,
         density: Float
-    ): List<Rect> {
-        if (!isSupportedPackage(packageName)) return emptyList()
+    ): DetectionResult {
+        if (!isSupportedPackage(packageName)) {
+            return DetectionResult(emptyList(), 0, emptyList(), emptyList())
+        }
 
         val found = LinkedHashMap<String, Rect>()
+        val candidates = LinkedHashSet<String>()
+        val matches = LinkedHashSet<String>()
         var visited = 0
-        val maxNodes = 1800
+        val maxNodes = 3500
 
         fun visit(node: AccessibilityNodeInfo, depth: Int) {
-            if (visited >= maxNodes || depth > 28) return
+            if (visited >= maxNodes || depth > 36) return
             visited += 1
 
             if (node.isVisibleToUser) {
-                val labels = listOfNotNull(
-                    node.text?.toString(),
-                    node.contentDescription?.toString()
-                )
-
-                for (label in labels) {
+                val labels = collectLabels(node)
+                for (rawLabel in labels) {
+                    val label = normalize(rawLabel)
+                    if (isDiagnosticCandidate(label) && candidates.size < 12) {
+                        candidates.add(label.take(64))
+                    }
                     if (!isBlockedLabel(packageName, label)) continue
 
-                    val selectedBounds = findSelectedTabBounds(
+                    matches.add(label.take(64))
+
+                    val navigationBounds = findBottomNavigationBounds(
                         node = node,
                         screenWidth = screenWidth,
                         screenHeight = screenHeight,
                         density = density
                     )
-
-                    val target = if (selectedBounds != null) {
-                        selectedFeedBounds(
+                    val target = if (navigationBounds != null) {
+                        val tabMask = bottomTabCellBounds(
                             node = node,
-                            selectedBounds = selectedBounds,
+                            navigationBounds = navigationBounds,
                             screenWidth = screenWidth,
-                            screenHeight = screenHeight,
-                            density = density
+                            screenHeight = screenHeight
                         )
+                        val selected = isSelectedInPath(node, navigationBounds)
+                        if (selected) {
+                            val feedMask = selectedFeedBounds(
+                                navigationBounds = navigationBounds,
+                                screenWidth = screenWidth,
+                                screenHeight = screenHeight,
+                                density = density
+                            )
+                            if (!feedMask.isEmpty) found[key(feedMask)] = feedMask
+                        }
+                        tabMask
                     } else {
                         chooseMaskBounds(
                             node = node,
@@ -76,45 +99,98 @@ internal object DetectionRules {
         }
 
         visit(root, 0)
-        return found.values.take(10)
+        return DetectionResult(
+            targets = found.values.take(14),
+            nodesVisited = visited,
+            candidateLabels = candidates.toList(),
+            matchedLabels = matches.toList()
+        )
     }
 
+    private fun collectLabels(node: AccessibilityNodeInfo): List<String> {
+        val labels = LinkedHashSet<String>()
+        fun add(value: CharSequence?) {
+            val text = value?.toString()?.trim().orEmpty()
+            if (text.isNotEmpty()) labels.add(text)
+        }
+
+        add(node.text)
+        add(node.contentDescription)
+        add(node.hintText)
+        add(node.viewIdResourceName)
+
+        if (Build.VERSION.SDK_INT >= 28) {
+            add(node.paneTitle)
+            add(node.tooltipText)
+        }
+        if (Build.VERSION.SDK_INT >= 30) {
+            add(node.stateDescription)
+        }
+
+        return labels.toList()
+    }
+
+    private fun normalize(raw: String): String =
+        raw.lowercase(Locale.ROOT).replace(Regex("\\s+"), " ").trim()
+
+    private fun isDiagnosticCandidate(label: String): Boolean =
+        label.contains("short") ||
+            label.contains("reel") ||
+            label.contains("clip") ||
+            label.contains("শর্টস") ||
+            label.contains("রিলস") ||
+            label.contains("रील")
+
     internal fun isBlockedLabel(packageName: String, raw: String): Boolean {
-        val label = raw.lowercase(Locale.ROOT)
-            .replace(Regex("\\s+"), " ")
-            .trim()
+        val label = normalize(raw)
         if (label.isBlank()) return false
 
         return when (packageName) {
-            YOUTUBE -> label == "shorts" ||
-                label == "youtube shorts" ||
-                label.startsWith("shorts tab") ||
-                label.startsWith("shorts button") ||
-                label.contains("shorts shelf") ||
-                label == "শর্টস" ||
-                label == "ইউটিউব শর্টস" ||
-                label.contains("শর্টস")
+            YOUTUBE -> {
+                val startsWithShorts = label == "shorts" ||
+                    label.startsWith("shorts,") ||
+                    label.startsWith("shorts ·") ||
+                    label.startsWith("shorts |") ||
+                    label.startsWith("shorts tab") ||
+                    label.startsWith("shorts button") ||
+                    label.startsWith("youtube shorts") ||
+                    label.contains("shorts shelf") ||
+                    label.contains("shorts feed") ||
+                    label.contains("shorts_tab") ||
+                    label.contains("shorts_tab_button")
+                startsWithShorts ||
+                    label == "শর্টস" ||
+                    label.startsWith("ইউটিউব শর্টস") ||
+                    label.contains("শর্টস")
+            }
 
-            INSTAGRAM, FACEBOOK -> label == "reel" ||
-                label == "reels" ||
-                label.startsWith("reels tab") ||
-                label.startsWith("reels button") ||
-                label.startsWith("watch reels") ||
-                label.contains("reel by ") ||
-                label.contains("reels feed") ||
-                label == "রিল" ||
-                label == "রিলস" ||
-                label.contains("রিলস") ||
-                label.contains("রিল ভিডিও") ||
-                label == "रील" ||
-                label == "रील्स" ||
-                label.contains("रील्स")
+            INSTAGRAM, FACEBOOK -> {
+                val startsWithReels = label == "reel" ||
+                    label == "reels" ||
+                    label.startsWith("reels,") ||
+                    label.startsWith("reels ·") ||
+                    label.startsWith("reels |") ||
+                    label.startsWith("reels tab") ||
+                    label.startsWith("reels button") ||
+                    label.startsWith("watch reels") ||
+                    label.startsWith("reel by ") ||
+                    label.contains("reels feed") ||
+                    label.contains("reels_tab") ||
+                    label.contains("clips_tab")
+                startsWithReels ||
+                    label == "রিল" ||
+                    label == "রিলস" ||
+                    label.contains("রিলস") ||
+                    label == "रील" ||
+                    label == "रील्स" ||
+                    label.contains("रील्स")
+            }
 
             else -> false
         }
     }
 
-    private fun findSelectedTabBounds(
+    private fun findBottomNavigationBounds(
         node: AccessibilityNodeInfo,
         screenWidth: Int,
         screenHeight: Int,
@@ -123,60 +199,72 @@ internal object DetectionRules {
         var current: AccessibilityNodeInfo? = node
         var depth = 0
 
-        while (current != null && depth < 4) {
+        while (current != null && depth < 7) {
             val bounds = Rect()
             current.getBoundsInScreen(bounds)
-            val isSelected = current.isSelected || current.isChecked
-            val looksLikeBottomTab = bounds.top >= screenHeight * 0.62f &&
-                bounds.top <= screenHeight * 0.96f &&
-                bounds.width() <= screenWidth * 0.75f &&
-                bounds.height() <= 120 * density
+            val minHeight = (40 * density).toInt()
+            val maxHeight = (150 * density).toInt()
+            val looksLikeBottomNavigation =
+                bounds.width() >= screenWidth * 0.78f &&
+                    bounds.height() in minHeight..maxHeight &&
+                    bounds.top >= screenHeight * 0.62f &&
+                    bounds.bottom >= screenHeight * 0.86f
 
-            if (isSelected && looksLikeBottomTab && !bounds.isEmpty) return bounds
-
+            if (looksLikeBottomNavigation) return bounds
             current = current.parent
             depth += 1
         }
-
         return null
     }
 
-    private fun selectedFeedBounds(
+    private fun isSelectedInPath(
         node: AccessibilityNodeInfo,
-        selectedBounds: Rect,
+        navigationBounds: Rect
+    ): Boolean {
+        var current: AccessibilityNodeInfo? = node
+        var depth = 0
+        while (current != null && depth < 5) {
+            val bounds = Rect()
+            current.getBoundsInScreen(bounds)
+            if (current.isSelected || current.isChecked) {
+                if (navigationBounds.contains(bounds) || bounds.intersect(navigationBounds)) {
+                    return true
+                }
+            }
+            current = current.parent
+            depth += 1
+        }
+        return false
+    }
+
+    private fun bottomTabCellBounds(
+        node: AccessibilityNodeInfo,
+        navigationBounds: Rect,
+        screenWidth: Int,
+        screenHeight: Int
+    ): Rect {
+        val nodeBounds = Rect()
+        node.getBoundsInScreen(nodeBounds)
+        if (nodeBounds.isEmpty) return Rect()
+
+        val centerX = nodeBounds.centerX().coerceIn(0, screenWidth)
+        val cellWidth = (screenWidth / 5f).toInt().coerceAtLeast(1)
+        val left = (centerX - cellWidth / 2).coerceAtLeast(0)
+        val right = (left + cellWidth).coerceAtMost(screenWidth)
+        val top = navigationBounds.top.coerceAtLeast(0)
+        val bottom = navigationBounds.bottom.coerceAtMost(screenHeight)
+        return Rect(left, top, right, bottom)
+    }
+
+    private fun selectedFeedBounds(
+        navigationBounds: Rect,
         screenWidth: Int,
         screenHeight: Int,
         density: Float
     ): Rect {
-        var current = node.parent
-        var level = 0
-        var navigationTop = -1
-
-        while (current != null && level < 6) {
-            val bounds = Rect()
-            current.getBoundsInScreen(bounds)
-            val looksLikeBottomNavigation = bounds.width() >= screenWidth * 0.80f &&
-                bounds.height() in (40 * density).toInt()..(140 * density).toInt() &&
-                bounds.top >= screenHeight * 0.62f &&
-                bounds.bottom >= screenHeight * 0.88f
-
-            if (looksLikeBottomNavigation) {
-                navigationTop = bounds.top
-                break
-            }
-
-            current = current.parent
-            level += 1
-        }
-
-        if (navigationTop < 0) {
-            navigationTop = selectedBounds.top - (68 * density).toInt()
-        }
-
         val top = (24 * density).toInt().coerceAtMost(screenHeight)
-        val bottom = navigationTop.coerceAtMost(screenHeight)
+        val bottom = navigationBounds.top.coerceAtMost(screenHeight)
         if (bottom - top < (screenHeight * 0.20f)) return Rect()
-
         return Rect(0, top, screenWidth, bottom)
     }
 
@@ -191,13 +279,13 @@ internal object DetectionRules {
         node.getBoundsInScreen(original)
         if (original.isEmpty) return Rect()
 
-        val minRegionHeight = (140 * density).toInt()
+        val minRegionHeight = (120 * density).toInt()
         val maxRegionHeight = (screenHeight * 0.72f).toInt()
         var parent = node.parent
         var candidate: Rect? = null
         var level = 0
 
-        while (parent != null && level < 5) {
+        while (parent != null && level < 6) {
             val bounds = Rect()
             parent.getBoundsInScreen(bounds)
             val largeEnough = bounds.width() >= screenWidth * 0.72f &&
@@ -214,8 +302,8 @@ internal object DetectionRules {
         }
 
         val result = candidate ?: Rect(original).apply {
-            val horizontal = (if (packageName == YOUTUBE) 34 else 42) * density
-            val vertical = (if (packageName == YOUTUBE) 24 else 38) * density
+            val horizontal = (if (packageName == YOUTUBE) 40 else 46) * density
+            val vertical = (if (packageName == YOUTUBE) 28 else 40) * density
             inset((-horizontal).toInt(), (-vertical).toInt())
         }
 
